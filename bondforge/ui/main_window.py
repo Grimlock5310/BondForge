@@ -22,10 +22,13 @@ from PySide6.QtWidgets import (
 
 from bondforge import __version__
 from bondforge.canvas.export import export_png, export_svg
+from bondforge.canvas.hotkeys import HotkeyDispatcher
 from bondforge.canvas.scene import BondForgeScene
 from bondforge.canvas.tools import AtomTool, BondTool, RingTool
 from bondforge.canvas.view import BondForgeView
+from bondforge.core.commands import CleanupStructureCommand
 from bondforge.core.io import read_mol_file, read_smiles, write_mol_file, write_smiles
+from bondforge.core.model.bond import BondStereo
 from bondforge.core.model.molecule import Molecule
 
 if TYPE_CHECKING:
@@ -81,14 +84,23 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._view)
 
         self._undo_stack = QUndoStack(self)
+        self._hotkeys = HotkeyDispatcher(self._scene, self._undo_stack)
+        self._view.set_hotkey_dispatcher(self._hotkeys)
+
         self._tools: dict[str, BaseTool] = {
             "select": _NullTool(self._scene, self._undo_stack),
             "atom_c": AtomTool(self._scene, self._undo_stack, element="C"),
             "atom_n": AtomTool(self._scene, self._undo_stack, element="N"),
             "atom_o": AtomTool(self._scene, self._undo_stack, element="O"),
             "bond": BondTool(self._scene, self._undo_stack),
-            "ring6": RingTool(self._scene, self._undo_stack, size=6, aromatic=True),
+            "wedge_up": BondTool(self._scene, self._undo_stack, stereo=BondStereo.WEDGE_UP),
+            "wedge_down": BondTool(self._scene, self._undo_stack, stereo=BondStereo.WEDGE_DOWN),
+            "ring3": RingTool(self._scene, self._undo_stack, size=3, aromatic=False),
+            "ring4": RingTool(self._scene, self._undo_stack, size=4, aromatic=False),
             "ring5": RingTool(self._scene, self._undo_stack, size=5, aromatic=False),
+            "ring6": RingTool(self._scene, self._undo_stack, size=6, aromatic=True),
+            "ring7": RingTool(self._scene, self._undo_stack, size=7, aromatic=False),
+            "ring8": RingTool(self._scene, self._undo_stack, size=8, aromatic=False),
         }
 
         self._build_menus()
@@ -133,7 +145,16 @@ class MainWindow(QMainWindow):
 
         menu.addMenu("&View")
         menu.addMenu("&Insert")
-        menu.addMenu("&Structure")
+
+        structure_menu = menu.addMenu("&Structure")
+        cleanup_action = QAction(
+            "&Clean Up Structure",
+            self,
+            shortcut="Ctrl+Shift+K",
+            triggered=self._cleanup_structure,
+        )
+        structure_menu.addAction(cleanup_action)
+
         menu.addMenu("&Tools")
 
         help_menu = menu.addMenu("&Help")
@@ -149,11 +170,17 @@ class MainWindow(QMainWindow):
         for key, label in (
             ("select", "Select"),
             ("bond", "Bond"),
+            ("wedge_up", "Wedge ▲"),
+            ("wedge_down", "Hash ▽"),
             ("atom_c", "C"),
             ("atom_n", "N"),
             ("atom_o", "O"),
-            ("ring6", "6-Ring"),
+            ("ring3", "3-Ring"),
+            ("ring4", "4-Ring"),
             ("ring5", "5-Ring"),
+            ("ring6", "6-Ring"),
+            ("ring7", "7-Ring"),
+            ("ring8", "8-Ring"),
         ):
             action = QAction(label, self, checkable=True)
             action.triggered.connect(lambda _checked=False, k=key: self._activate_tool(k))
@@ -228,6 +255,11 @@ class MainWindow(QMainWindow):
         if not path.endswith(".svg"):
             path += ".svg"
         export_svg(self._scene, path)
+
+    def _cleanup_structure(self) -> None:
+        if not self._scene.molecule.atoms:
+            return
+        self._undo_stack.push(CleanupStructureCommand(self._scene))
 
     def _about(self) -> None:
         QMessageBox.about(

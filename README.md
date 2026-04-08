@@ -6,10 +6,20 @@ BondForge is an early-stage chemistry drawing application built on **PySide6 (Qt
 
 ## Status
 
-**Pre-alpha (v0.1).** What works today:
+**Pre-alpha (v0.2).** What works today:
 
-- Click-and-drag drawing of atoms, bonds, and rings
-- Carbon-implicit vertices, charges, and basic stereo wedges
+- Click-and-drag drawing of atoms, bonds, and rings (3- through 8-membered)
+- 30°-snapped angles and uniform bond lengths on every fresh bond
+- Live preview line while dragging the bond tool
+- Wedge / hash stereo bond tools
+- Nucleus-style hotkeys: hover an atom and tap `n`/`o`/`s`/`f`/`b`/`i`/`k`/`p`,
+  shift+`l`/`r`/`i`/`e`/`m`/`z` for `Cl`/`Br`/`Si`/`Se`/`Mg`/`Zn`,
+  `+`/`-` to change formal charge, `1`/`2`/`3` to set bond order,
+  `Delete` to remove the atom under the cursor
+- Whole-molecule structure clean-up (Ctrl+Shift+K) using RDKit's
+  `Compute2DCoords`, scaled to the canvas's uniform bond length and
+  re-centered on the original centroid
+- Carbon-implicit vertices, charge labels
 - MOL (V2000/V3000) and SMILES read/write
 - PNG and SVG export
 - Undo/redo via the Qt undo stack
@@ -25,8 +35,8 @@ ChemDraw is the de facto standard chemistry drawing tool but is proprietary, exp
 
 | Version | Theme | Highlights |
 |---------|-------|------------|
-| **v0.1** | Skeleton | Window, canvas, atom/bond/ring tools, MOL+SMILES IO, PNG export, undo |
-| v0.2 | Drawing core | Nucleus hotkeys, full template palette, stereo wedges, brackets, charges, isotopes, structure clean-up |
+| v0.1 | Skeleton | Window, canvas, atom/bond/ring tools, MOL+SMILES IO, PNG export, undo |
+| **v0.2** | Drawing core | Nucleus hotkeys, snapping, uniform bond lengths, structure clean-up, wedge/hash bonds, ring set 3–8 |
 | v0.3 | Reactions & naming | Reaction arrows, atom mapping, electron-pushing curved arrows, RXN export, OPSIN Name→Structure, STOUT Structure→Name (experimental) |
 | v0.4 | Properties & 3D | MW/formula/logP/pKa/TPSA, embedded 3Dmol.js viewer, ETKDG conformers, MMFF94 minimization, XYZ/PDB |
 | v0.5 | Documents | Multi-page, rich text, tables, journal styles, PDF/SVG export, native `.bforge` format |
