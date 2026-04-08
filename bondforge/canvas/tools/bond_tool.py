@@ -142,12 +142,16 @@ class BondTool(BaseTool):
         # Decide whether the user dragged at all. A near-zero-distance
         # release should grow a new bond off the start atom in a sensible
         # default direction (not snap to the original click position, which
-        # could leave the new atom on top of the old one).
+        # could leave the new atom on top of the old one). A click that
+        # lands back on the *same* atom as the press (i.e. no drag off the
+        # atom) is also treated as a click, so tapping the end of an
+        # existing bond grows a fresh bond off it.
         dx = end_pos.x() - self._press_pos.x()
         dy = end_pos.y() - self._press_pos.y()
         is_click = math.hypot(dx, dy) < CLICK_THRESHOLD
+        click_on_start_atom = is_click and end_item is not None and end_item.atom.id == start_id
 
-        if is_click and end_item is None:
+        if is_click and (end_item is None or click_on_start_atom):
             # Pick a direction that doesn't collide with existing neighbors.
             neighbor_coords = [
                 (

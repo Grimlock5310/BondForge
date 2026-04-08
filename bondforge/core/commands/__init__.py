@@ -14,7 +14,12 @@ from bondforge.core.model.bond import BondOrder, BondStereo
 
 
 class AddAtomCommand(QUndoCommand):
-    """Add a single atom to the scene's molecule."""
+    """Add a single atom to the scene's molecule.
+
+    The original atom ID is preserved across redo-after-undo cycles so
+    that any downstream commands (e.g. :class:`AddBondCommand`) that
+    reference it still resolve after the stack walks back and forth.
+    """
 
     def __init__(self, scene: BondForgeScene, element: str, x: float, y: float) -> None:
         super().__init__(f"Add {element}")
@@ -25,8 +30,19 @@ class AddAtomCommand(QUndoCommand):
         self.created_atom_id: int = -1
 
     def redo(self) -> None:
-        atom = self._scene.molecule.add_atom(self._element, self._x, self._y)
-        self.created_atom_id = atom.id
+        mol = self._scene.molecule
+        atom = mol.add_atom(self._element, self._x, self._y)
+        if self.created_atom_id == -1:
+            self.created_atom_id = atom.id
+        elif atom.id != self.created_atom_id:
+            # Second-or-later redo: the molecule's ID counter has moved on
+            # since the first run, so ``add_atom`` handed us a fresh ID.
+            # Re-key the atom under its original ID so sibling commands
+            # (which cached the original) remain valid.
+            mol.atoms.pop(atom.id)
+            atom.id = self.created_atom_id
+            mol.atoms[self.created_atom_id] = atom
+            mol._next_atom_id = max(mol._next_atom_id, self.created_atom_id + 1)
         self._scene.rebuild()
 
     def undo(self) -> None:
@@ -36,7 +52,12 @@ class AddAtomCommand(QUndoCommand):
 
 
 class AddBondCommand(QUndoCommand):
-    """Add a single bond between two existing atoms."""
+    """Add a single bond between two existing atoms.
+
+    Like :class:`AddAtomCommand`, the bond's ID is preserved across
+    redo-after-undo cycles so any command that references it (none today,
+    but the invariant is cheap to maintain) still resolves.
+    """
 
     def __init__(
         self,
@@ -55,8 +76,15 @@ class AddBondCommand(QUndoCommand):
         self.created_bond_id: int = -1
 
     def redo(self) -> None:
-        bond = self._scene.molecule.add_bond(self._begin, self._end, self._order, self._stereo)
-        self.created_bond_id = bond.id
+        mol = self._scene.molecule
+        bond = mol.add_bond(self._begin, self._end, self._order, self._stereo)
+        if self.created_bond_id == -1:
+            self.created_bond_id = bond.id
+        elif bond.id != self.created_bond_id:
+            mol.bonds.pop(bond.id)
+            bond.id = self.created_bond_id
+            mol.bonds[self.created_bond_id] = bond
+            mol._next_bond_id = max(mol._next_bond_id, self.created_bond_id + 1)
         self._scene.rebuild()
 
     def undo(self) -> None:
