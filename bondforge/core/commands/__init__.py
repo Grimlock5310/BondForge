@@ -140,9 +140,103 @@ class ChangeElementCommand(QUndoCommand):
         self._scene.rebuild()
 
 
+class SetChargeCommand(QUndoCommand):
+    """Adjust an atom's formal charge by ``delta`` (positive or negative)."""
+
+    def __init__(self, scene: BondForgeScene, atom_id: int, delta: int) -> None:
+        super().__init__("Change charge")
+        self._scene = scene
+        self._atom_id = atom_id
+        self._delta = delta
+        self._applied = 0
+
+    def redo(self) -> None:
+        atom = self._scene.molecule.atoms.get(self._atom_id)
+        if atom is None:
+            self._applied = 0
+            return
+        atom.charge += self._delta
+        self._applied = self._delta
+        self._scene.rebuild()
+
+    def undo(self) -> None:
+        atom = self._scene.molecule.atoms.get(self._atom_id)
+        if atom is None or self._applied == 0:
+            return
+        atom.charge -= self._applied
+        self._scene.rebuild()
+
+
+class CycleBondOrderCommand(QUndoCommand):
+    """Set a bond's order. Used by the ``1`` / ``2`` / ``3`` hotkeys."""
+
+    _ORDERS = {
+        1: BondOrder.SINGLE,
+        2: BondOrder.DOUBLE,
+        3: BondOrder.TRIPLE,
+    }
+
+    def __init__(self, scene: BondForgeScene, bond_id: int, order_index: int) -> None:
+        super().__init__(f"Set bond order {order_index}")
+        self._scene = scene
+        self._bond_id = bond_id
+        self._new_order = self._ORDERS.get(order_index, BondOrder.SINGLE)
+        self._old_order: BondOrder | None = None
+
+    def redo(self) -> None:
+        bond = self._scene.molecule.bonds.get(self._bond_id)
+        if bond is None:
+            return
+        self._old_order = bond.order
+        bond.order = self._new_order
+        self._scene.rebuild()
+
+    def undo(self) -> None:
+        bond = self._scene.molecule.bonds.get(self._bond_id)
+        if bond is None or self._old_order is None:
+            return
+        bond.order = self._old_order
+        self._scene.rebuild()
+
+
+class CleanupStructureCommand(QUndoCommand):
+    """Re-lay out the entire molecule with RDKit's 2D coordinate generator.
+
+    The command snapshots the prior coordinates so an undo restores them
+    exactly. Cleanup is whole-molecule and idempotent — running it twice
+    in a row produces no further changes.
+    """
+
+    def __init__(self, scene: BondForgeScene) -> None:
+        super().__init__("Clean up structure")
+        self._scene = scene
+        self._old_positions: dict[int, tuple[float, float]] = {}
+
+    def redo(self) -> None:
+        # Imported lazily to avoid pulling RDKit into modules that don't need it.
+        from bondforge.engine.cleanup import compute_clean_2d_coords
+
+        mol = self._scene.molecule
+        self._old_positions = {a.id: (a.x, a.y) for a in mol.iter_atoms()}
+        compute_clean_2d_coords(mol)
+        self._scene.rebuild()
+
+    def undo(self) -> None:
+        mol = self._scene.molecule
+        for atom_id, (x, y) in self._old_positions.items():
+            atom = mol.atoms.get(atom_id)
+            if atom is not None:
+                atom.x = x
+                atom.y = y
+        self._scene.rebuild()
+
+
 __all__ = [
     "AddAtomCommand",
     "AddBondCommand",
     "DeleteSelectionCommand",
     "ChangeElementCommand",
+    "SetChargeCommand",
+    "CycleBondOrderCommand",
+    "CleanupStructureCommand",
 ]

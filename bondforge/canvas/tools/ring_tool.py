@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from bondforge.canvas.scene import DEFAULT_BOND_LENGTH
+from bondforge.canvas.geometry import DEFAULT_BOND_LENGTH
 from bondforge.canvas.tools.base_tool import BaseTool
 from bondforge.core.commands import AddAtomCommand, AddBondCommand
 from bondforge.core.model.bond import BondOrder

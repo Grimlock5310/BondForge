@@ -5,20 +5,23 @@ the Qt graphics items. It listens for model edits and reconciles items
 on demand. v0.1 takes the simplest possible approach: rebuild all items
 from the model whenever it changes. We'll move to incremental updates
 when the snapshot tests show it matters.
+
+The scene also supports lightweight "preview" items used by interactive
+tools to show a ghost of what they're about to create (e.g. the bond
+preview line drawn while the user is dragging the bond tool).
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Signal
-from PySide6.QtWidgets import QGraphicsScene
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene
 
+from bondforge.canvas.geometry import DEFAULT_BOND_LENGTH
 from bondforge.canvas.items.atom_item import AtomItem
 from bondforge.canvas.items.bond_item import BondItem
 from bondforge.core.model.molecule import Molecule
 
-# Default bond length in scene units. Chosen to give a comfortable
-# default font size for atom labels at zoom=1.
-DEFAULT_BOND_LENGTH = 50.0
+__all__ = ["BondForgeScene", "DEFAULT_BOND_LENGTH"]
 
 
 class BondForgeScene(QGraphicsScene):
@@ -33,6 +36,7 @@ class BondForgeScene(QGraphicsScene):
         self._molecule = molecule or Molecule()
         self._atom_items: dict[int, AtomItem] = {}
         self._bond_items: dict[int, BondItem] = {}
+        self._preview_items: list[QGraphicsItem] = []
         self.rebuild()
 
     @property
@@ -46,6 +50,7 @@ class BondForgeScene(QGraphicsScene):
 
     def rebuild(self) -> None:
         """Drop and recreate all atom and bond items from the model."""
+        self.clear_previews()
         for item in list(self._atom_items.values()) + list(self._bond_items.values()):
             self.removeItem(item)
         self._atom_items.clear()
@@ -70,3 +75,21 @@ class BondForgeScene(QGraphicsScene):
 
     def bond_item(self, bond_id: int) -> BondItem | None:
         return self._bond_items.get(bond_id)
+
+    # ----- preview items ------------------------------------------------
+
+    def add_preview_item(self, item: QGraphicsItem) -> QGraphicsItem:
+        """Add an ephemeral item that lives outside the molecule model.
+
+        Tools use this for drag previews. Cleared by :meth:`clear_previews`
+        and on every :meth:`rebuild`.
+        """
+        item.setZValue(10.0)
+        self.addItem(item)
+        self._preview_items.append(item)
+        return item
+
+    def clear_previews(self) -> None:
+        for item in self._preview_items:
+            self.removeItem(item)
+        self._preview_items.clear()
