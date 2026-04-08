@@ -48,3 +48,37 @@ def test_cleanup_empty_molecule_is_noop() -> None:
     mol = Molecule()
     compute_clean_2d_coords(mol)  # must not raise
     assert len(mol.atoms) == 0
+
+
+def test_cleanup_survives_hypervalent_atom() -> None:
+    """A nitrogen with five neighbors is chemically nonsense but users
+    routinely produce it mid-edit. Clean-up must never crash on it."""
+    from bondforge.core.model.molecule import Molecule
+
+    mol = Molecule()
+    n = mol.add_atom("N", 0.0, 0.0)
+    for i in range(5):
+        c = mol.add_atom("C", 50.0 * (i + 1), 0.0)
+        mol.add_bond(n.id, c.id)
+    # Must not raise.
+    compute_clean_2d_coords(mol)
+    # And every atom still has a finite position.
+    for atom in mol.iter_atoms():
+        assert math.isfinite(atom.x)
+        assert math.isfinite(atom.y)
+
+
+def test_cleanup_survives_kekulization_failure() -> None:
+    """An odd-membered ring with all-aromatic bonds cannot be kekulized;
+    the old cleanup path would raise from ``Chem.SanitizeMol``. The new
+    path must still produce a layout."""
+    from bondforge.core.model.bond import BondOrder
+    from bondforge.core.model.molecule import Molecule
+
+    mol = Molecule()
+    atom_ids = [mol.add_atom("C", float(i * 50), 0.0).id for i in range(5)]
+    for i in range(5):
+        mol.add_bond(atom_ids[i], atom_ids[(i + 1) % 5], BondOrder.AROMATIC)
+    # Must not raise.
+    compute_clean_2d_coords(mol)
+    assert len(mol.atoms) == 5

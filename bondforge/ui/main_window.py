@@ -28,7 +28,7 @@ from bondforge.canvas.tools import AtomTool, BondTool, RingTool
 from bondforge.canvas.view import BondForgeView
 from bondforge.core.commands import CleanupStructureCommand
 from bondforge.core.io import read_mol_file, read_smiles, write_mol_file, write_smiles
-from bondforge.core.model.bond import BondStereo
+from bondforge.core.model.bond import BondOrder, BondStereo
 from bondforge.core.model.molecule import Molecule
 
 if TYPE_CHECKING:
@@ -93,6 +93,8 @@ class MainWindow(QMainWindow):
             "atom_n": AtomTool(self._scene, self._undo_stack, element="N"),
             "atom_o": AtomTool(self._scene, self._undo_stack, element="O"),
             "bond": BondTool(self._scene, self._undo_stack),
+            "bond_double": BondTool(self._scene, self._undo_stack, order=BondOrder.DOUBLE),
+            "bond_triple": BondTool(self._scene, self._undo_stack, order=BondOrder.TRIPLE),
             "wedge_up": BondTool(self._scene, self._undo_stack, stereo=BondStereo.WEDGE_UP),
             "wedge_down": BondTool(self._scene, self._undo_stack, stereo=BondStereo.WEDGE_DOWN),
             "ring3": RingTool(self._scene, self._undo_stack, size=3, aromatic=False),
@@ -169,7 +171,9 @@ class MainWindow(QMainWindow):
         group.setExclusive(True)
         for key, label in (
             ("select", "Select"),
-            ("bond", "Bond"),
+            ("bond", "Single"),
+            ("bond_double", "Double"),
+            ("bond_triple", "Triple"),
             ("wedge_up", "Wedge ▲"),
             ("wedge_down", "Hash ▽"),
             ("atom_c", "C"),
