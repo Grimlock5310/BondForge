@@ -28,10 +28,12 @@ from bondforge.canvas.geometry import (
     DEFAULT_BOND_LENGTH,
     free_endpoint_at_default_length,
     snap_endpoint,
+    zigzag_extension_angle,
 )
 from bondforge.canvas.items.atom_item import AtomItem
+from bondforge.canvas.items.bond_item import BondItem
 from bondforge.canvas.tools.base_tool import BaseTool
-from bondforge.core.commands import AddAtomCommand, AddBondCommand
+from bondforge.core.commands import AddAtomCommand, AddBondCommand, SetBondOrderCommand
 from bondforge.core.model.bond import BondOrder, BondStereo
 
 if TYPE_CHECKING:
@@ -68,6 +70,12 @@ class BondTool(BaseTool):
         item = self.scene.itemAt(pos, transform) if transform is not None else None
         return item if isinstance(item, AtomItem) else None
 
+    def _bond_at(self, pos: QPointF) -> BondItem | None:
+        view = self.scene.views()[0] if self.scene.views() else None
+        transform = view.transform() if view is not None else None
+        item = self.scene.itemAt(pos, transform) if transform is not None else None
+        return item if isinstance(item, BondItem) else None
+
     def _resolve_endpoint(
         self, start_x: float, start_y: float, end_pos: QPointF, end_item: AtomItem | None
     ) -> tuple[float, float, AtomItem | None]:
@@ -102,8 +110,25 @@ class BondTool(BaseTool):
     # ----- mouse handlers -----------------------------------------------
 
     def mouse_press(self, event: QGraphicsSceneMouseEvent) -> None:
-        self._press_pos = event.scenePos()
-        atom_item = self._atom_at(self._press_pos)
+        pos = event.scenePos()
+        atom_item = self._atom_at(pos)
+
+        # Clicking on an existing bond with a typed bond tool should
+        # **set** that bond's order rather than dragging out a new bond
+        # from the click point. (Atoms take priority — hitting an atom
+        # at a bond endpoint behaves like a normal grab-and-drag.)
+        if atom_item is None:
+            bond_item = self._bond_at(pos)
+            if bond_item is not None:
+                self._push(SetBondOrderCommand(self.scene, bond_item.bond.id, self.order))
+                self.scene.rebuild()
+                # Swallow the gesture: the next release must not create
+                # a dangling stub at the click point.
+                self._press_pos = None
+                self._press_atom_id = None
+                return
+
+        self._press_pos = pos
         self._press_atom_id = atom_item.atom.id if atom_item is not None else None
 
     def mouse_move(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -152,18 +177,7 @@ class BondTool(BaseTool):
         click_on_start_atom = is_click and end_item is not None and end_item.atom.id == start_id
 
         if is_click and (end_item is None or click_on_start_atom):
-            # Pick a direction that doesn't collide with existing neighbors.
-            neighbor_coords = [
-                (
-                    self.scene.molecule.atoms[bond.other_atom_id(start_id)].x,
-                    self.scene.molecule.atoms[bond.other_atom_id(start_id)].y,
-                )
-                for bond in self.scene.molecule.bonds_for_atom(start_id)
-            ]
-            from bondforge.canvas.geometry import best_new_bond_angle, neighbor_angles
-
-            angles = neighbor_angles(sx, sy, neighbor_coords)
-            angle = best_new_bond_angle(angles)
+            angle = self._click_extend_angle(start_id)
             ex, ey = free_endpoint_at_default_length(sx, sy, angle, length=DEFAULT_BOND_LENGTH)
             cmd = AddAtomCommand(self.scene, "C", ex, ey)
             self._push(cmd)
@@ -197,6 +211,45 @@ class BondTool(BaseTool):
         self._press_pos = None
 
     # ----- internal -----------------------------------------------------
+
+    def _click_extend_angle(self, tip_atom_id: int) -> float:
+        """Pick the direction for a new bond when the user "taps to extend".
+
+        - With no existing bonds on the tip, go up-right (textbook default).
+        - With one neighbor, extend as a parallel-grandparent zigzag so
+          repeated clicks trace ↗↘↗↘ instead of closing a hexagon.
+        - With two-or-more neighbors, fall back to the generic largest-gap
+          heuristic so tapping at a branching atom still picks a sensible
+          empty wedge.
+        """
+        mol = self.scene.molecule
+        tip = mol.atoms[tip_atom_id]
+        incident = list(mol.bonds_for_atom(tip_atom_id))
+
+        if len(incident) == 1:
+            neighbor_id = incident[0].other_atom_id(tip_atom_id)
+            neighbor = mol.atoms[neighbor_id]
+            # Look up the neighbor's *other* neighbor (the tip's grandparent).
+            grandparent = None
+            for nb_bond in mol.bonds_for_atom(neighbor_id):
+                candidate_id = nb_bond.other_atom_id(neighbor_id)
+                if candidate_id != tip_atom_id:
+                    grandparent = mol.atoms[candidate_id]
+                    break
+            if grandparent is not None:
+                return zigzag_extension_angle(
+                    tip.x, tip.y, neighbor.x, neighbor.y, grandparent.x, grandparent.y
+                )
+            return zigzag_extension_angle(tip.x, tip.y, neighbor.x, neighbor.y)
+
+        # Zero or 2+ neighbors: the generic largest-gap heuristic.
+        from bondforge.canvas.geometry import best_new_bond_angle, neighbor_angles
+
+        neighbor_coords = [
+            (mol.atoms[b.other_atom_id(tip_atom_id)].x, mol.atoms[b.other_atom_id(tip_atom_id)].y)
+            for b in incident
+        ]
+        return best_new_bond_angle(neighbor_angles(tip.x, tip.y, neighbor_coords))
 
     def _push(self, cmd) -> None:
         if self.undo_stack is not None:

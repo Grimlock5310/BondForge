@@ -24,12 +24,25 @@ from bondforge import __version__
 from bondforge.canvas.export import export_png, export_svg
 from bondforge.canvas.hotkeys import HotkeyDispatcher
 from bondforge.canvas.scene import BondForgeScene
-from bondforge.canvas.tools import AtomTool, BondTool, RingTool
+from bondforge.canvas.tools import ArrowTool, AtomTool, BondTool, RingTool
 from bondforge.canvas.view import BondForgeView
-from bondforge.core.commands import CleanupStructureCommand
-from bondforge.core.io import read_mol_file, read_smiles, write_mol_file, write_smiles
+from bondforge.core.commands import (
+    AddAtomCommand,
+    AddBondCommand,
+    CleanupStructureCommand,
+)
+from bondforge.core.io import (
+    RxnExportError,
+    read_mol_file,
+    read_smiles,
+    write_mol_file,
+    write_rxn_file,
+    write_smiles,
+)
+from bondforge.core.model.arrow import ArrowKind
 from bondforge.core.model.bond import BondOrder, BondStereo
 from bondforge.core.model.molecule import Molecule
+from bondforge.ui.dialogs.name_to_structure import NameToStructureDialog
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QGraphicsSceneMouseEvent
@@ -103,6 +116,13 @@ class MainWindow(QMainWindow):
             "ring6": RingTool(self._scene, self._undo_stack, size=6, aromatic=True),
             "ring7": RingTool(self._scene, self._undo_stack, size=7, aromatic=False),
             "ring8": RingTool(self._scene, self._undo_stack, size=8, aromatic=False),
+            "arrow_fwd": ArrowTool(self._scene, self._undo_stack, kind=ArrowKind.FORWARD),
+            "arrow_eq": ArrowTool(self._scene, self._undo_stack, kind=ArrowKind.EQUILIBRIUM),
+            "arrow_retro": ArrowTool(self._scene, self._undo_stack, kind=ArrowKind.RETROSYNTHETIC),
+            "arrow_pair": ArrowTool(self._scene, self._undo_stack, kind=ArrowKind.ELECTRON_PAIR),
+            "arrow_radical": ArrowTool(
+                self._scene, self._undo_stack, kind=ArrowKind.SINGLE_ELECTRON
+            ),
         }
 
         self._build_menus()
@@ -126,6 +146,7 @@ class MainWindow(QMainWindow):
         )
         export_png_action = QAction("Export &PNG…", self, triggered=self._export_png)
         export_svg_action = QAction("Export &SVG…", self, triggered=self._export_svg)
+        export_rxn_action = QAction("Export &RXN…", self, triggered=self._export_rxn)
         quit_action = QAction(
             "&Quit", self, shortcut=QKeySequence.StandardKey.Quit, triggered=self.close
         )
@@ -134,6 +155,7 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(export_png_action)
         file_menu.addAction(export_svg_action)
+        file_menu.addAction(export_rxn_action)
         file_menu.addSeparator()
         file_menu.addAction(quit_action)
 
@@ -157,7 +179,14 @@ class MainWindow(QMainWindow):
         )
         structure_menu.addAction(cleanup_action)
 
-        menu.addMenu("&Tools")
+        tools_menu = menu.addMenu("&Tools")
+        name_to_structure_action = QAction(
+            "&Name to Structure…",
+            self,
+            shortcut="Ctrl+Shift+N",
+            triggered=self._name_to_structure,
+        )
+        tools_menu.addAction(name_to_structure_action)
 
         help_menu = menu.addMenu("&Help")
         about_action = QAction("&About BondForge", self, triggered=self._about)
@@ -185,6 +214,11 @@ class MainWindow(QMainWindow):
             ("ring6", "6-Ring"),
             ("ring7", "7-Ring"),
             ("ring8", "8-Ring"),
+            ("arrow_fwd", "→"),
+            ("arrow_eq", "⇌"),
+            ("arrow_retro", "⇒"),
+            ("arrow_pair", "↷ pair"),
+            ("arrow_radical", "↷ rad"),
         ):
             action = QAction(label, self, checkable=True)
             action.triggered.connect(lambda _checked=False, k=key: self._activate_tool(k))
@@ -259,6 +293,66 @@ class MainWindow(QMainWindow):
         if not path.endswith(".svg"):
             path += ".svg"
         export_svg(self._scene, path)
+
+    def _export_rxn(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "Export RXN", "", "MDL reaction file (*.rxn)")
+        if not path:
+            return
+        if not path.endswith(".rxn"):
+            path += ".rxn"
+        try:
+            write_rxn_file(self._scene.document, path)
+        except RxnExportError as exc:
+            QMessageBox.warning(self, "RXN export failed", str(exc))
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "RXN export failed", str(exc))
+
+    def _name_to_structure(self) -> None:
+        from bondforge.engine.cleanup import compute_clean_2d_coords
+
+        dialog = NameToStructureDialog(self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        mol = dialog.result_molecule()
+        if mol is None or not mol.atoms:
+            return
+
+        # RDKit's raw 2D coordinates are ~1.5 units between bonds; the
+        # clean-up pass rescales to DEFAULT_BOND_LENGTH and re-centers on
+        # the old centroid (which for a fresh OPSIN molecule is near the
+        # origin). That's exactly what we want for a "paste at origin"
+        # import.
+        compute_clean_2d_coords(mol)
+
+        # Paste the returned molecule into the current document by issuing
+        # one AddAtomCommand per atom and one AddBondCommand per bond,
+        # all wrapped in a single undo macro so the user can undo the whole
+        # import with one Ctrl+Z.
+        self._undo_stack.beginMacro("Name to structure")
+        id_map: dict[int, int] = {}
+        try:
+            for atom in mol.iter_atoms():
+                cmd = AddAtomCommand(self._scene, atom.element, atom.x, atom.y)
+                self._undo_stack.push(cmd)
+                id_map[atom.id] = cmd.created_atom_id
+                new_atom = self._scene.molecule.atoms[cmd.created_atom_id]
+                new_atom.charge = atom.charge
+                new_atom.isotope = atom.isotope
+                new_atom.explicit_hydrogens = atom.explicit_hydrogens
+                new_atom.radical_electrons = atom.radical_electrons
+            for bond in mol.iter_bonds():
+                self._undo_stack.push(
+                    AddBondCommand(
+                        self._scene,
+                        id_map[bond.begin_atom_id],
+                        id_map[bond.end_atom_id],
+                        bond.order,
+                        bond.stereo,
+                    )
+                )
+        finally:
+            self._undo_stack.endMacro()
+        self._scene.rebuild()
 
     def _cleanup_structure(self) -> None:
         if not self._scene.molecule.atoms:
