@@ -6,7 +6,7 @@ BondForge is an early-stage chemistry drawing application built on **PySide6 (Qt
 
 ## Status
 
-**Pre-alpha (v0.3).** What works today:
+**Pre-alpha (v0.4).** What works today:
 
 - Click-and-drag drawing of atoms, bonds, and rings (3- through 8-membered)
 - Click to extend a chain at a proper zigzag (bonds parallel to the grandparent)
@@ -29,8 +29,14 @@ BondForge is an early-stage chemistry drawing application built on **PySide6 (Qt
   reactants and products)
 - OPSIN Name→Structure dialog (Tools → Name to Structure…, Ctrl+Shift+N);
   requires the optional `naming` extra: `pip install bondforge[naming]`
+- **Properties panel** (auto-updating dock widget): MW, exact mass, formula,
+  logP, TPSA, HBD/HBA, rotatable bonds, heavy atom count, ring count
+- **3D viewer** via embedded 3Dmol.js (Structure → 3D Viewer…, Ctrl+Shift+3)
+- **ETKDG conformer generation** (RDKit ETKDGv3 embedding)
+- **MMFF94/UFF force-field minimization** (Structure → Minimize)
+- **XYZ and PDB export** (Structure → Export XYZ…/Export PDB…)
 - Carbon-implicit vertices, charge labels, reaction map-number labels
-- MOL (V2000/V3000), SMILES, and RXN read/write
+- MOL (V2000/V3000), SMILES, RXN, XYZ, and PDB read/write
 - PNG and SVG export
 - Undo/redo via the Qt undo stack
 - Round-trip with RDKit for sanitization, aromaticity, and canonical SMILES
@@ -47,8 +53,8 @@ ChemDraw is the de facto standard chemistry drawing tool but is proprietary, exp
 |---------|-------|------------|
 | v0.1 | Skeleton | Window, canvas, atom/bond/ring tools, MOL+SMILES IO, PNG export, undo |
 | v0.2 | Drawing core | Nucleus hotkeys, snapping, uniform bond lengths, structure clean-up, wedge/hash bonds, ring set 3–8 |
-| **v0.3** | Reactions & naming | Reaction arrows, atom mapping, electron-pushing curved arrows, RXN export, OPSIN Name→Structure |
-| v0.4 | Properties & 3D | MW/formula/logP/pKa/TPSA, embedded 3Dmol.js viewer, ETKDG conformers, MMFF94 minimization, XYZ/PDB |
+| v0.3 | Reactions & naming | Reaction arrows, atom mapping, electron-pushing curved arrows, RXN export, OPSIN Name→Structure |
+| **v0.4** | Properties & 3D | MW/formula/logP/TPSA properties panel, embedded 3Dmol.js viewer, ETKDG conformers, MMFF94 minimization, XYZ/PDB export |
 | v0.5 | Documents | Multi-page, rich text, tables, journal styles, PDF/SVG export, native `.bforge` format |
 | v0.6 | BioDraw / HELM | Peptide/DNA/RNA editor, monomer palette, HELM IO, antibody templates |
 | v0.7 | Spectra | NMRium embedded viewer, JCAMP-DX, 1H/13C prediction |
