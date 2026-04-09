@@ -7,13 +7,23 @@ QWebChannel for bidirectional interaction (e.g. picking atoms).
 
 If ``QWebEngineWidgets`` is not installed the module still imports — it
 just provides a placeholder widget that tells the user what to install.
+
+**Implementation note**: The HTML is written to a temporary file and
+loaded via ``file://`` URL rather than ``setHtml()`` because Qt's web
+engine blocks network requests from data-origin pages. Loading from
+a ``file://`` origin allows the ``<script src="https://...">`` tag to
+fetch 3Dmol.js from the CDN.
 """
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 from rdkit import Chem
 
 try:
+    from PySide6.QtCore import QUrl
     from PySide6.QtWebEngineWidgets import QWebEngineView
 
     _HAS_WEBENGINE = True
@@ -28,15 +38,39 @@ _HTML_TEMPLATE = """\
 <head>
 <meta charset="utf-8">
 <style>
-  html, body {{ margin: 0; padding: 0; width: 100%%; height: 100%%;
-               overflow: hidden; background: #f8f8f8; }}
-  #viewer {{ width: 100%%; height: 100%%; position: absolute; }}
+  html, body {{ margin: 0; padding: 0; width: 100%; height: 100%;
+               overflow: hidden; background: #f8f8f8; font-family: sans-serif; }}
+  #viewer {{ width: 100%; height: 100%; position: absolute; }}
+  #loading {{ position: absolute; top: 50%; left: 50%;
+              transform: translate(-50%, -50%); color: #888; font-size: 14px; }}
+  #error {{ display: none; position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%); color: #c00; font-size: 13px;
+            text-align: center; max-width: 80%; }}
 </style>
-<script src="https://3dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
 </head>
 <body>
 <div id="viewer"></div>
+<div id="loading">Loading 3Dmol.js…</div>
+<div id="error">
+  <p><b>Could not load 3Dmol.js</b></p>
+  <p>The 3D viewer requires an internet connection to load the rendering
+  library from the CDN. Check your network and try again.</p>
+</div>
 <script>
+  // Timeout: if 3Dmol hasn't loaded in 8 seconds, show the error.
+  var _loadTimer = setTimeout(function() {{
+    document.getElementById("loading").style.display = "none";
+    document.getElementById("error").style.display = "block";
+  }}, 8000);
+</script>
+<script src="https://3dmol.csb.pitt.edu/build/3Dmol-min.js"
+        onload="clearTimeout(_loadTimer); _initViewer();"
+        onerror="clearTimeout(_loadTimer);
+                 document.getElementById('loading').style.display='none';
+                 document.getElementById('error').style.display='block';"></script>
+<script>
+function _initViewer() {{
+  document.getElementById("loading").style.display = "none";
   var viewer = $3Dmol.createViewer("viewer", {{
     backgroundColor: "0xf8f8f8"
   }});
@@ -45,6 +79,7 @@ _HTML_TEMPLATE = """\
   viewer.setStyle({{}}, {{stick: {{radius: 0.15}}, sphere: {{scale: 0.25}}}});
   viewer.zoomTo();
   viewer.render();
+}}
 </script>
 </body>
 </html>
@@ -62,8 +97,18 @@ class Viewer3D(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
+        self._tmp_dir = tempfile.mkdtemp(prefix="bondforge_3d_")
+
         if _HAS_WEBENGINE:
             self._web = QWebEngineView()
+            # Enable JavaScript and remote content access.
+            settings = self._web.settings()
+            from PySide6.QtWebEngineCore import QWebEngineSettings
+
+            settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+            settings.setAttribute(
+                QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True
+            )
             layout.addWidget(self._web)
         else:
             self._web = None
@@ -78,10 +123,14 @@ class Viewer3D(QWidget):
         if self._web is None:
             return
         mol_block = Chem.MolToMolBlock(mol, confId=conf_id)
-        # Escape backticks in the MOL block for the JS template literal.
-        mol_block = mol_block.replace("`", "\\`")
+        # Escape backticks and backslashes for the JS template literal.
+        mol_block = mol_block.replace("\\", "\\\\").replace("`", "\\`")
         html = _HTML_TEMPLATE.format(mol_block=mol_block)
-        self._web.setHtml(html)
+        # Write to a temp file so the page has a file:// origin and can
+        # fetch the 3Dmol.js CDN script (data: origins block network).
+        html_path = Path(self._tmp_dir) / "viewer.html"
+        html_path.write_text(html, encoding="utf-8")
+        self._web.load(QUrl.fromLocalFile(str(html_path)))
 
     def clear(self) -> None:
         """Clear the current display."""
