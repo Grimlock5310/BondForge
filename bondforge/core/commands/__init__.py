@@ -372,6 +372,99 @@ class SetAtomMapNumberCommand(QUndoCommand):
         self._scene.rebuild()
 
 
+class AddTextCommand(QUndoCommand):
+    """Add a text annotation to the document."""
+
+    def __init__(
+        self,
+        scene: BondForgeScene,
+        text: str,
+        x: float,
+        y: float,
+        *,
+        font_family: str = "Arial",
+        font_size: float = 12.0,
+        bold: bool = False,
+        italic: bool = False,
+    ) -> None:
+        super().__init__("Add text")
+        self._scene = scene
+        self._text = text
+        self._x = x
+        self._y = y
+        self._font_family = font_family
+        self._font_size = font_size
+        self._bold = bold
+        self._italic = italic
+        self.created_text_id: int = -1
+
+    def redo(self) -> None:
+        doc = self._scene.document
+        ann = doc.add_text(
+            self._text,
+            self._x,
+            self._y,
+            font_family=self._font_family,
+            font_size=self._font_size,
+            bold=self._bold,
+            italic=self._italic,
+        )
+        if self.created_text_id == -1:
+            self.created_text_id = ann.id
+        elif ann.id != self.created_text_id:
+            doc.texts.pop(ann.id)
+            ann.id = self.created_text_id
+            doc.texts[self.created_text_id] = ann
+            doc._next_text_id = max(doc._next_text_id, self.created_text_id + 1)
+        self._scene.rebuild()
+
+    def undo(self) -> None:
+        if self.created_text_id != -1:
+            self._scene.document.remove_text(self.created_text_id)
+            self._scene.rebuild()
+
+
+class DeleteTextCommand(QUndoCommand):
+    """Delete a text annotation from the document."""
+
+    def __init__(self, scene: BondForgeScene, text_id: int) -> None:
+        super().__init__("Delete text")
+        self._scene = scene
+        self._text_id = text_id
+        self._snapshot: tuple | None = None
+
+    def redo(self) -> None:
+        doc = self._scene.document
+        ann = doc.texts.get(self._text_id)
+        if ann is None:
+            return
+        self._snapshot = (
+            ann.text,
+            ann.x,
+            ann.y,
+            ann.font_family,
+            ann.font_size,
+            ann.bold,
+            ann.italic,
+        )
+        doc.remove_text(self._text_id)
+        self._scene.rebuild()
+
+    def undo(self) -> None:
+        if self._snapshot is None:
+            return
+        doc = self._scene.document
+        text, x, y, font_family, font_size, bold, italic = self._snapshot
+        ann = doc.add_text(
+            text, x, y, font_family=font_family, font_size=font_size, bold=bold, italic=italic
+        )
+        doc.texts.pop(ann.id)
+        ann.id = self._text_id
+        doc.texts[self._text_id] = ann
+        doc._next_text_id = max(doc._next_text_id, self._text_id + 1)
+        self._scene.rebuild()
+
+
 class CleanupStructureCommand(QUndoCommand):
     """Re-lay out the entire molecule with RDKit's 2D coordinate generator.
 
@@ -416,4 +509,6 @@ __all__ = [
     "AddArrowCommand",
     "DeleteArrowCommand",
     "SetAtomMapNumberCommand",
+    "AddTextCommand",
+    "DeleteTextCommand",
 ]

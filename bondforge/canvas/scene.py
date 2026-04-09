@@ -24,6 +24,7 @@ from bondforge.canvas.geometry import DEFAULT_BOND_LENGTH
 from bondforge.canvas.items.arrow_item import ArrowItem
 from bondforge.canvas.items.atom_item import AtomItem
 from bondforge.canvas.items.bond_item import BondItem
+from bondforge.canvas.items.text_item import TextItem
 from bondforge.core.model.document import Document
 from bondforge.core.model.molecule import Molecule
 
@@ -52,6 +53,7 @@ class BondForgeScene(QGraphicsScene):
         self._atom_items: dict[int, AtomItem] = {}
         self._bond_items: dict[int, BondItem] = {}
         self._arrow_items: dict[int, ArrowItem] = {}
+        self._text_items: dict[int, TextItem] = {}
         self._preview_items: list[QGraphicsItem] = []
         self.rebuild()
 
@@ -74,18 +76,20 @@ class BondForgeScene(QGraphicsScene):
         self.rebuild()
 
     def rebuild(self) -> None:
-        """Drop and recreate all atom, bond, and arrow items from the model."""
+        """Drop and recreate all atom, bond, arrow, and text items from the model."""
         self.clear_previews()
         stale: list[QGraphicsItem] = (
             list(self._atom_items.values())
             + list(self._bond_items.values())
             + list(self._arrow_items.values())
+            + list(self._text_items.values())
         )
         for item in stale:
             self.removeItem(item)
         self._atom_items.clear()
         self._bond_items.clear()
         self._arrow_items.clear()
+        self._text_items.clear()
 
         molecule = self._document.molecule
         for atom in molecule.iter_atoms():
@@ -105,6 +109,11 @@ class BondForgeScene(QGraphicsScene):
             self.addItem(item)
             self._arrow_items[arrow.id] = item
 
+        for text in self._document.iter_texts():
+            item = TextItem(text)
+            self.addItem(item)
+            self._text_items[text.id] = item
+
         self.model_changed.emit()
 
     def atom_item(self, atom_id: int) -> AtomItem | None:
@@ -115,6 +124,9 @@ class BondForgeScene(QGraphicsScene):
 
     def arrow_item(self, arrow_id: int) -> ArrowItem | None:
         return self._arrow_items.get(arrow_id)
+
+    def text_item(self, text_id: int) -> TextItem | None:
+        return self._text_items.get(text_id)
 
     # ----- preview items ------------------------------------------------
 

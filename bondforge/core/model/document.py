@@ -2,13 +2,13 @@
 
 A :class:`Document` owns exactly one :class:`Molecule` (which may have
 disjoint connected components — a reaction scheme draws A + B → C by
-laying out three components in the same molecule) plus a list of
-:class:`Arrow` instances for reaction and electron-pushing arrows.
+laying out three components in the same molecule), a list of
+:class:`Arrow` instances, and a list of :class:`TextAnnotation` objects.
 
 Older v0.2 code talks to ``scene.molecule`` directly; ``Document`` is
 designed to slot under that without breaking existing call sites. The
 scene exposes both ``molecule`` (the bare connectivity) and ``document``
-(the full drawing including arrows).
+(the full drawing including arrows and text annotations).
 """
 
 from __future__ import annotations
@@ -18,15 +18,18 @@ from dataclasses import dataclass, field
 
 from bondforge.core.model.arrow import Arrow, ArrowKind
 from bondforge.core.model.molecule import Molecule
+from bondforge.core.model.text_annotation import TextAnnotation
 
 
 @dataclass
 class Document:
-    """A drawing: one molecule + a list of arrows."""
+    """A drawing: one molecule + arrows + text annotations."""
 
     molecule: Molecule = field(default_factory=Molecule)
     arrows: dict[int, Arrow] = field(default_factory=dict)
+    texts: dict[int, TextAnnotation] = field(default_factory=dict)
     _next_arrow_id: int = 1
+    _next_text_id: int = 1
 
     def add_arrow(
         self,
@@ -61,6 +64,40 @@ class Document:
 
     def iter_arrows(self) -> Iterable[Arrow]:
         return self.arrows.values()
+
+    def add_text(
+        self,
+        text: str,
+        x: float,
+        y: float,
+        *,
+        font_family: str = "Arial",
+        font_size: float = 12.0,
+        bold: bool = False,
+        italic: bool = False,
+    ) -> TextAnnotation:
+        """Create and register a new text annotation."""
+        ann = TextAnnotation(
+            id=self._next_text_id,
+            text=text,
+            x=x,
+            y=y,
+            font_family=font_family,
+            font_size=font_size,
+            bold=bold,
+            italic=italic,
+        )
+        self.texts[ann.id] = ann
+        self._next_text_id += 1
+        return ann
+
+    def remove_text(self, text_id: int) -> None:
+        if text_id not in self.texts:
+            raise KeyError(f"TextAnnotation {text_id} not found")
+        del self.texts[text_id]
+
+    def iter_texts(self) -> Iterable[TextAnnotation]:
+        return self.texts.values()
 
 
 __all__ = ["Document"]

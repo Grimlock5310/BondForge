@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtCore import QMarginsF, QRectF, Qt
+from PySide6.QtGui import QImage, QPageLayout, QPageSize, QPainter
 from PySide6.QtSvg import QSvgGenerator
 
 from bondforge.canvas.scene import BondForgeScene
@@ -58,5 +58,49 @@ def export_svg(scene: BondForgeScene, path: str | Path) -> Path:
     painter = QPainter(generator)
     painter.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing)
     scene.render(painter, target=QRectF(0, 0, rect.width(), rect.height()), source=rect)
+    painter.end()
+    return out
+
+
+def export_pdf(scene: BondForgeScene, path: str | Path) -> Path:
+    """Render the scene to a PDF file at ``path``.
+
+    Uses :class:`QPdfWriter` for vector-quality output on Letter-size
+    pages. The drawing is centered on the page with a 1-inch margin.
+    """
+    from PySide6.QtGui import QPdfWriter
+
+    rect = _content_rect(scene)
+    out = Path(path)
+
+    writer = QPdfWriter(str(out))
+    layout = QPageLayout(
+        QPageSize(QPageSize.PageSizeId.Letter),
+        QPageLayout.Orientation.Portrait,
+        QMarginsF(72, 72, 72, 72),  # 1-inch margins in points
+    )
+    writer.setPageLayout(layout)
+    writer.setTitle("BondForge drawing")
+    writer.setCreator("BondForge")
+
+    painter = QPainter(writer)
+    painter.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing)
+
+    # Compute the printable area and scale the scene to fit.
+    page_rect = writer.pageLayout().paintRectPixels(writer.resolution())
+    page_w = page_rect.width()
+    page_h = page_rect.height()
+
+    scale_x = page_w / rect.width() if rect.width() > 0 else 1.0
+    scale_y = page_h / rect.height() if rect.height() > 0 else 1.0
+    scale = min(scale_x, scale_y, 1.0)  # never upscale
+
+    draw_w = rect.width() * scale
+    draw_h = rect.height() * scale
+    offset_x = (page_w - draw_w) / 2
+    offset_y = (page_h - draw_h) / 2
+
+    target = QRectF(offset_x, offset_y, draw_w, draw_h)
+    scene.render(painter, target=target, source=rect)
     painter.end()
     return out
