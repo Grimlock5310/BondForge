@@ -39,10 +39,13 @@ from bondforge.core.io import (
     write_rxn_file,
     write_smiles,
 )
+from bondforge.core.io.pdb import write_pdb_file
+from bondforge.core.io.xyz import write_xyz_file
 from bondforge.core.model.arrow import ArrowKind
 from bondforge.core.model.bond import BondOrder, BondStereo
 from bondforge.core.model.molecule import Molecule
 from bondforge.ui.dialogs.name_to_structure import NameToStructureDialog
+from bondforge.ui.inspectors.properties_panel import PropertiesPanel
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QGraphicsSceneMouseEvent
@@ -125,9 +128,17 @@ class MainWindow(QMainWindow):
             ),
         }
 
+        # Cached 3D conformer (generated on demand, cleared on model change).
+        self._conformer_mol = None
+        self._viewer_3d = None
+
+        self._props_panel = PropertiesPanel(self._scene, self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._props_panel)
+
         self._build_menus()
         self._build_toolbar()
         self._scene.set_tool(self._tools["bond"])
+        self._scene.model_changed.connect(self._on_model_changed)
 
     # ----- menus / toolbar ---------------------------------------------
 
@@ -167,7 +178,11 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(undo_action)
         edit_menu.addAction(redo_action)
 
-        menu.addMenu("&View")
+        view_menu = menu.addMenu("&View")
+        toggle_props = self._props_panel.toggleViewAction()
+        toggle_props.setText("&Properties Panel")
+        view_menu.addAction(toggle_props)
+
         menu.addMenu("&Insert")
 
         structure_menu = menu.addMenu("&Structure")
@@ -178,6 +193,25 @@ class MainWindow(QMainWindow):
             triggered=self._cleanup_structure,
         )
         structure_menu.addAction(cleanup_action)
+        structure_menu.addSeparator()
+        view_3d_action = QAction(
+            "&3D Viewer…",
+            self,
+            shortcut="Ctrl+Shift+3",
+            triggered=self._show_3d_viewer,
+        )
+        minimize_action = QAction(
+            "&Minimize (MMFF94)…",
+            self,
+            triggered=self._minimize_3d,
+        )
+        export_xyz_action = QAction("Export &XYZ…", self, triggered=self._export_xyz)
+        export_pdb_action = QAction("Export P&DB…", self, triggered=self._export_pdb)
+        structure_menu.addAction(view_3d_action)
+        structure_menu.addAction(minimize_action)
+        structure_menu.addSeparator()
+        structure_menu.addAction(export_xyz_action)
+        structure_menu.addAction(export_pdb_action)
 
         tools_menu = menu.addMenu("&Tools")
         name_to_structure_action = QAction(
@@ -306,6 +340,82 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "RXN export failed", str(exc))
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, "RXN export failed", str(exc))
+
+    def _on_model_changed(self) -> None:
+        # Invalidate cached conformer whenever the 2D model changes.
+        self._conformer_mol = None
+
+    def _generate_conformer(self):
+        """Generate or return cached 3D conformer. Returns None on failure."""
+        if self._conformer_mol is not None:
+            return self._conformer_mol
+        from bondforge.engine.conformer import ConformerError, generate_conformer
+
+        try:
+            self._conformer_mol = generate_conformer(self._scene.molecule)
+        except ConformerError as exc:
+            QMessageBox.warning(self, "Conformer generation failed", str(exc))
+            return None
+        return self._conformer_mol
+
+    def _show_3d_viewer(self) -> None:
+        mol3d = self._generate_conformer()
+        if mol3d is None:
+            return
+        from bondforge.ui.viewers.viewer_3d import Viewer3D
+
+        if self._viewer_3d is None or not self._viewer_3d.isVisible():
+            self._viewer_3d = Viewer3D()
+            self._viewer_3d.setWindowTitle("BondForge — 3D Viewer")
+            self._viewer_3d.resize(600, 500)
+        self._viewer_3d.set_molecule(mol3d)
+        self._viewer_3d.show()
+        self._viewer_3d.raise_()
+
+    def _minimize_3d(self) -> None:
+        mol3d = self._generate_conformer()
+        if mol3d is None:
+            return
+        from bondforge.engine.forcefield import MinimizationError, minimize
+
+        try:
+            result = minimize(mol3d)
+        except MinimizationError as exc:
+            QMessageBox.warning(self, "Minimization failed", str(exc))
+            return
+        status = "converged" if result.converged else "did NOT converge"
+        QMessageBox.information(
+            self,
+            "Minimization complete",
+            f"Force field: {result.force_field}\n"
+            f"Energy: {result.energy:.2f} kcal/mol\n"
+            f"Status: {status}",
+        )
+        # Refresh the 3D viewer if open.
+        if self._viewer_3d is not None and self._viewer_3d.isVisible():
+            self._viewer_3d.set_molecule(mol3d)
+
+    def _export_xyz(self) -> None:
+        mol3d = self._generate_conformer()
+        if mol3d is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export XYZ", "", "XYZ file (*.xyz)")
+        if not path:
+            return
+        if not path.endswith(".xyz"):
+            path += ".xyz"
+        write_xyz_file(mol3d, path, comment="Generated by BondForge")
+
+    def _export_pdb(self) -> None:
+        mol3d = self._generate_conformer()
+        if mol3d is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export PDB", "", "PDB file (*.pdb)")
+        if not path:
+            return
+        if not path.endswith(".pdb"):
+            path += ".pdb"
+        write_pdb_file(mol3d, path)
 
     def _name_to_structure(self) -> None:
         from bondforge.engine.cleanup import compute_clean_2d_coords
