@@ -119,6 +119,43 @@ def best_new_bond_angle(existing_neighbor_angles: list[float]) -> float:
     return best_mid
 
 
+def zigzag_extension_angle(
+    tip_x: float,
+    tip_y: float,
+    neighbor_x: float,
+    neighbor_y: float,
+    grandparent_x: float | None = None,
+    grandparent_y: float | None = None,
+) -> float:
+    """Compute the direction for a new bond that extends a zigzag chain.
+
+    The "tip" is the atom the user just clicked on; the "neighbor" is the
+    tip's only existing neighbor; the "grandparent" is the neighbor's
+    other neighbor (the atom one step further back along the chain).
+
+    Chemistry drawings use a 120° interior angle with the turn direction
+    *alternating*, so a proper zigzag chain has every other bond running
+    parallel to each other. If we just put each new bond at
+    ``neighbor_angle + 120°`` (as the generic heuristic does) the chain
+    curls into a regular hexagon and closes on itself. Instead, the next
+    bond ``tip → new`` should run **parallel** to ``grandparent → neighbor``
+    — same direction, same magnitude — which is what gives you the
+    textbook ↗↘↗↘ shape.
+
+    If no grandparent exists yet (the tip's neighbor is itself a chain
+    end), we fall back to the generic 120° offset, which just picks one
+    of the two valid zigzag orientations.
+    """
+    if grandparent_x is None or grandparent_y is None:
+        # No grandparent to mirror: use the generic 120° offset from the
+        # neighbor direction. Either orientation starts a valid zigzag.
+        neighbor_dir = math.atan2(neighbor_y - tip_y, neighbor_x - tip_x)
+        return neighbor_dir + math.radians(120.0)
+    # The new bond points in the same direction as grandparent → neighbor,
+    # so the four atoms lie on a zigzag with parallel alternate bonds.
+    return math.atan2(neighbor_y - grandparent_y, neighbor_x - grandparent_x)
+
+
 __all__ = [
     "DEFAULT_BOND_LENGTH",
     "DEFAULT_SNAP_DEG",
@@ -129,4 +166,5 @@ __all__ = [
     "angle_between",
     "neighbor_angles",
     "best_new_bond_angle",
+    "zigzag_extension_angle",
 ]

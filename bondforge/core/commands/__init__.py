@@ -195,6 +195,32 @@ class SetChargeCommand(QUndoCommand):
         self._scene.rebuild()
 
 
+class SetBondOrderCommand(QUndoCommand):
+    """Set a bond's order to a specific :class:`BondOrder` value."""
+
+    def __init__(self, scene: BondForgeScene, bond_id: int, order: BondOrder) -> None:
+        super().__init__(f"Set bond to {order.name.lower()}")
+        self._scene = scene
+        self._bond_id = bond_id
+        self._new_order = order
+        self._old_order: BondOrder | None = None
+
+    def redo(self) -> None:
+        bond = self._scene.molecule.bonds.get(self._bond_id)
+        if bond is None:
+            return
+        self._old_order = bond.order
+        bond.order = self._new_order
+        self._scene.rebuild()
+
+    def undo(self) -> None:
+        bond = self._scene.molecule.bonds.get(self._bond_id)
+        if bond is None or self._old_order is None:
+            return
+        bond.order = self._old_order
+        self._scene.rebuild()
+
+
 class CycleBondOrderCommand(QUndoCommand):
     """Set a bond's order. Used by the ``1`` / ``2`` / ``3`` hotkeys."""
 
@@ -265,6 +291,7 @@ __all__ = [
     "DeleteSelectionCommand",
     "ChangeElementCommand",
     "SetChargeCommand",
+    "SetBondOrderCommand",
     "CycleBondOrderCommand",
     "CleanupStructureCommand",
 ]
