@@ -10,6 +10,7 @@ from __future__ import annotations
 from PySide6.QtGui import QUndoCommand
 
 from bondforge.canvas.scene import BondForgeScene
+from bondforge.core.model.arrow import ArrowKind
 from bondforge.core.model.bond import BondOrder, BondStereo
 
 
@@ -253,6 +254,124 @@ class CycleBondOrderCommand(QUndoCommand):
         self._scene.rebuild()
 
 
+class AddArrowCommand(QUndoCommand):
+    """Add a reaction or electron-pushing arrow to the document."""
+
+    def __init__(
+        self,
+        scene: BondForgeScene,
+        kind: ArrowKind,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        *,
+        curvature: float = 0.0,
+        label: str = "",
+    ) -> None:
+        super().__init__(f"Add {kind.name.lower().replace('_', ' ')} arrow")
+        self._scene = scene
+        self._kind = kind
+        self._x1 = x1
+        self._y1 = y1
+        self._x2 = x2
+        self._y2 = y2
+        self._curvature = curvature
+        self._label = label
+        self.created_arrow_id: int = -1
+
+    def redo(self) -> None:
+        doc = self._scene.document
+        arrow = doc.add_arrow(
+            self._kind,
+            self._x1,
+            self._y1,
+            self._x2,
+            self._y2,
+            curvature=self._curvature,
+            label=self._label,
+        )
+        if self.created_arrow_id == -1:
+            self.created_arrow_id = arrow.id
+        elif arrow.id != self.created_arrow_id:
+            doc.arrows.pop(arrow.id)
+            arrow.id = self.created_arrow_id
+            doc.arrows[self.created_arrow_id] = arrow
+            doc._next_arrow_id = max(doc._next_arrow_id, self.created_arrow_id + 1)
+        self._scene.rebuild()
+
+    def undo(self) -> None:
+        if self.created_arrow_id != -1:
+            self._scene.document.remove_arrow(self.created_arrow_id)
+            self._scene.rebuild()
+
+
+class DeleteArrowCommand(QUndoCommand):
+    """Delete an arrow from the document."""
+
+    def __init__(self, scene: BondForgeScene, arrow_id: int) -> None:
+        super().__init__("Delete arrow")
+        self._scene = scene
+        self._arrow_id = arrow_id
+        self._snapshot: tuple | None = None
+
+    def redo(self) -> None:
+        doc = self._scene.document
+        arrow = doc.arrows.get(self._arrow_id)
+        if arrow is None:
+            return
+        self._snapshot = (
+            arrow.kind,
+            arrow.x1,
+            arrow.y1,
+            arrow.x2,
+            arrow.y2,
+            arrow.curvature,
+            arrow.label,
+        )
+        doc.remove_arrow(self._arrow_id)
+        self._scene.rebuild()
+
+    def undo(self) -> None:
+        if self._snapshot is None:
+            return
+        doc = self._scene.document
+        kind, x1, y1, x2, y2, curvature, label = self._snapshot
+        arrow = doc.add_arrow(kind, x1, y1, x2, y2, curvature=curvature, label=label)
+        # Restore the original ID so other code referencing it still works.
+        doc.arrows.pop(arrow.id)
+        arrow.id = self._arrow_id
+        doc.arrows[self._arrow_id] = arrow
+        doc._next_arrow_id = max(doc._next_arrow_id, self._arrow_id + 1)
+        self._scene.rebuild()
+
+
+class SetAtomMapNumberCommand(QUndoCommand):
+    """Set the atom-map number of an atom (used for reaction mapping)."""
+
+    def __init__(self, scene: BondForgeScene, atom_id: int, map_number: int) -> None:
+        super().__init__(f"Map atom :{map_number}")
+        self._scene = scene
+        self._atom_id = atom_id
+        self._new_map = map_number
+        self._old_map: int | None = None
+
+    def redo(self) -> None:
+        atom = self._scene.molecule.atoms.get(self._atom_id)
+        if atom is None:
+            return
+        self._old_map = atom.map_number
+        atom.map_number = self._new_map
+        self._scene.rebuild()
+
+    def undo(self) -> None:
+        atom = self._scene.molecule.atoms.get(self._atom_id)
+        if atom is None or self._old_map is None:
+            return
+        atom.map_number = self._old_map
+        self._scene.rebuild()
+
+
 class CleanupStructureCommand(QUndoCommand):
     """Re-lay out the entire molecule with RDKit's 2D coordinate generator.
 
@@ -294,4 +413,7 @@ __all__ = [
     "SetBondOrderCommand",
     "CycleBondOrderCommand",
     "CleanupStructureCommand",
+    "AddArrowCommand",
+    "DeleteArrowCommand",
+    "SetAtomMapNumberCommand",
 ]

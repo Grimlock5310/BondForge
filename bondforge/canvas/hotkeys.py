@@ -24,6 +24,7 @@ from bondforge.core.commands import (
     ChangeElementCommand,
     CycleBondOrderCommand,
     DeleteSelectionCommand,
+    SetAtomMapNumberCommand,
     SetChargeCommand,
 )
 
@@ -98,12 +99,32 @@ class HotkeyDispatcher:
         if key_text in ("\x7f", "\b") and atom_item is not None:
             return self._push(DeleteSelectionCommand(self._scene, [atom_item.atom.id]))
 
+        # Atom-atom reaction mapping: lowercase m stamps the next sequential
+        # map number on the atom under the cursor. Uppercase M (shift+m) is
+        # reserved for Mg and is handled below.
+        if key_text == "m" and not shift and atom_item is not None:
+            return self._push(
+                SetAtomMapNumberCommand(
+                    self._scene,
+                    atom_item.atom.id,
+                    self._next_map_number(),
+                )
+            )
+
         # Element keys.
         element = self._element_for(key_text, shift=shift)
         if element is not None:
             return self._handle_element(element, atom_item, scene_pos)
 
         return False
+
+    def _next_map_number(self) -> int:
+        """Return the next unused reaction atom-map number in the scene."""
+        used = {atom.map_number for atom in self._scene.molecule.iter_atoms() if atom.map_number}
+        n = 1
+        while n in used:
+            n += 1
+        return n
 
     # ----- helpers ------------------------------------------------------
 
