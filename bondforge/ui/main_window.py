@@ -21,10 +21,11 @@ from PySide6.QtWidgets import (
 )
 
 from bondforge import __version__
-from bondforge.canvas.export import export_png, export_svg
+from bondforge.canvas.export import export_pdf, export_png, export_svg
 from bondforge.canvas.hotkeys import HotkeyDispatcher
 from bondforge.canvas.scene import BondForgeScene
-from bondforge.canvas.tools import ArrowTool, AtomTool, BondTool, RingTool
+from bondforge.canvas.styles import STYLES, apply_style
+from bondforge.canvas.tools import ArrowTool, AtomTool, BondTool, RingTool, TextTool
 from bondforge.canvas.view import BondForgeView
 from bondforge.core.commands import (
     AddAtomCommand,
@@ -33,8 +34,10 @@ from bondforge.core.commands import (
 )
 from bondforge.core.io import (
     RxnExportError,
+    load_bforge,
     read_mol_file,
     read_smiles,
+    save_bforge,
     write_mol_file,
     write_rxn_file,
     write_smiles,
@@ -126,6 +129,7 @@ class MainWindow(QMainWindow):
             "arrow_radical": ArrowTool(
                 self._scene, self._undo_stack, kind=ArrowKind.SINGLE_ELECTRON
             ),
+            "text": TextTool(self._scene, self._undo_stack),
         }
 
         # Cached 3D conformer (generated on demand, cleared on model change).
@@ -155,8 +159,15 @@ class MainWindow(QMainWindow):
         save_action = QAction(
             "&Save As…", self, shortcut=QKeySequence.StandardKey.SaveAs, triggered=self._save_as
         )
+        save_bforge_action = QAction(
+            "Save &BondForge…", self, shortcut="Ctrl+Shift+S", triggered=self._save_bforge
+        )
+        open_bforge_action = QAction(
+            "Open Bond&Forge…", self, shortcut="Ctrl+Shift+O", triggered=self._open_bforge
+        )
         export_png_action = QAction("Export &PNG…", self, triggered=self._export_png)
         export_svg_action = QAction("Export &SVG…", self, triggered=self._export_svg)
+        export_pdf_action = QAction("Export P&DF…", self, triggered=self._export_pdf)
         export_rxn_action = QAction("Export &RXN…", self, triggered=self._export_rxn)
         quit_action = QAction(
             "&Quit", self, shortcut=QKeySequence.StandardKey.Quit, triggered=self.close
@@ -164,8 +175,12 @@ class MainWindow(QMainWindow):
         for a in (new_action, open_action, save_action):
             file_menu.addAction(a)
         file_menu.addSeparator()
+        file_menu.addAction(save_bforge_action)
+        file_menu.addAction(open_bforge_action)
+        file_menu.addSeparator()
         file_menu.addAction(export_png_action)
         file_menu.addAction(export_svg_action)
+        file_menu.addAction(export_pdf_action)
         file_menu.addAction(export_rxn_action)
         file_menu.addSeparator()
         file_menu.addAction(quit_action)
@@ -182,8 +197,28 @@ class MainWindow(QMainWindow):
         toggle_props = self._props_panel.toggleViewAction()
         toggle_props.setText("&Properties Panel")
         view_menu.addAction(toggle_props)
+        view_menu.addSeparator()
+        style_menu = view_menu.addMenu("&Journal Style")
+        style_group = QActionGroup(self)
+        style_group.setExclusive(True)
+        for style_name, style in STYLES.items():
+            action = QAction(style_name, self, checkable=True)
+            action.triggered.connect(
+                lambda _checked=False, s=style: apply_style(self._scene, s)
+            )
+            style_group.addAction(action)
+            style_menu.addAction(action)
+            if style_name == "Default":
+                action.setChecked(True)
 
-        menu.addMenu("&Insert")
+        insert_menu = menu.addMenu("&Insert")
+        insert_text_action = QAction(
+            "&Text Annotation",
+            self,
+            shortcut="Ctrl+T",
+            triggered=lambda: self._activate_tool("text"),
+        )
+        insert_menu.addAction(insert_text_action)
 
         structure_menu = menu.addMenu("&Structure")
         cleanup_action = QAction(
@@ -253,6 +288,7 @@ class MainWindow(QMainWindow):
             ("arrow_retro", "⇒"),
             ("arrow_pair", "↷ pair"),
             ("arrow_radical", "↷ rad"),
+            ("text", "Text"),
         ):
             action = QAction(label, self, checkable=True)
             action.triggered.connect(lambda _checked=False, k=key: self._activate_tool(k))
@@ -277,11 +313,16 @@ class MainWindow(QMainWindow):
             self,
             "Open molecule",
             "",
-            "Molecules (*.mol *.smi *.smiles);;All files (*)",
+            "All supported (*.mol *.smi *.smiles *.bforge);;Molecules (*.mol *.smi *.smiles);;BondForge (*.bforge);;All files (*)",
         )
         if not path:
             return
         try:
+            if path.endswith(".bforge"):
+                doc = load_bforge(path)
+                self._scene.set_document(doc)
+                self._undo_stack.clear()
+                return
             if path.endswith((".smi", ".smiles")):
                 text = Path(path).read_text(encoding="utf-8").strip().split()[0]
                 mol = read_smiles(text)
@@ -340,6 +381,41 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "RXN export failed", str(exc))
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, "RXN export failed", str(exc))
+
+    def _save_bforge(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save BondForge file", "", "BondForge file (*.bforge)"
+        )
+        if not path:
+            return
+        if not path.endswith(".bforge"):
+            path += ".bforge"
+        try:
+            save_bforge(self._scene.document, path)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Save failed", str(exc))
+
+    def _open_bforge(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open BondForge file", "", "BondForge file (*.bforge);;All files (*)"
+        )
+        if not path:
+            return
+        try:
+            doc = load_bforge(path)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Open failed", str(exc))
+            return
+        self._scene.set_document(doc)
+        self._undo_stack.clear()
+
+    def _export_pdf(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "Export PDF", "", "PDF document (*.pdf)")
+        if not path:
+            return
+        if not path.endswith(".pdf"):
+            path += ".pdf"
+        export_pdf(self._scene, path)
 
     def _on_model_changed(self) -> None:
         # Invalidate cached conformer whenever the 2D model changes.

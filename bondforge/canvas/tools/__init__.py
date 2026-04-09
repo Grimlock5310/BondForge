@@ -5,5 +5,6 @@ from bondforge.canvas.tools.atom_tool import AtomTool
 from bondforge.canvas.tools.base_tool import BaseTool
 from bondforge.canvas.tools.bond_tool import BondTool
 from bondforge.canvas.tools.ring_tool import RingTool
+from bondforge.canvas.tools.text_tool import TextTool
 
-__all__ = ["BaseTool", "AtomTool", "BondTool", "RingTool", "ArrowTool"]
+__all__ = ["BaseTool", "AtomTool", "BondTool", "RingTool", "ArrowTool", "TextTool"]
