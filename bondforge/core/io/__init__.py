@@ -1,6 +1,13 @@
 """File-format readers and writers."""
 
 from bondforge.core.io.bforge import load_bforge, save_bforge
+from bondforge.core.io.helm import (
+    HelmError,
+    parse_helm,
+    read_helm_file,
+    write_helm,
+    write_helm_file,
+)
 from bondforge.core.io.mol import read_mol, read_mol_file, write_mol, write_mol_file
 from bondforge.core.io.pdb import read_pdb, read_pdb_file, write_pdb, write_pdb_file
 from bondforge.core.io.rxn import RxnExportError, document_to_rxn, write_rxn_file
@@ -27,4 +34,9 @@ __all__ = [
     "write_pdb_file",
     "save_bforge",
     "load_bforge",
+    "parse_helm",
+    "write_helm",
+    "read_helm_file",
+    "write_helm_file",
+    "HelmError",
 ]

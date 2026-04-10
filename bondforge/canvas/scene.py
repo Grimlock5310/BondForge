@@ -23,6 +23,7 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene
 from bondforge.canvas.geometry import DEFAULT_BOND_LENGTH
 from bondforge.canvas.items.arrow_item import ArrowItem
 from bondforge.canvas.items.atom_item import AtomItem
+from bondforge.canvas.items.biopolymer_item import BiopolymerItem
 from bondforge.canvas.items.bond_item import BondItem
 from bondforge.canvas.items.text_item import TextItem
 from bondforge.core.model.document import Document
@@ -54,6 +55,7 @@ class BondForgeScene(QGraphicsScene):
         self._bond_items: dict[int, BondItem] = {}
         self._arrow_items: dict[int, ArrowItem] = {}
         self._text_items: dict[int, TextItem] = {}
+        self._biopolymer_items: dict[int, BiopolymerItem] = {}
         self._preview_items: list[QGraphicsItem] = []
         self.rebuild()
 
@@ -76,13 +78,14 @@ class BondForgeScene(QGraphicsScene):
         self.rebuild()
 
     def rebuild(self) -> None:
-        """Drop and recreate all atom, bond, arrow, and text items from the model."""
+        """Drop and recreate all items from the model."""
         self.clear_previews()
         stale: list[QGraphicsItem] = (
             list(self._atom_items.values())
             + list(self._bond_items.values())
             + list(self._arrow_items.values())
             + list(self._text_items.values())
+            + list(self._biopolymer_items.values())
         )
         for item in stale:
             self.removeItem(item)
@@ -90,6 +93,7 @@ class BondForgeScene(QGraphicsScene):
         self._bond_items.clear()
         self._arrow_items.clear()
         self._text_items.clear()
+        self._biopolymer_items.clear()
 
         molecule = self._document.molecule
         for atom in molecule.iter_atoms():
@@ -114,6 +118,11 @@ class BondForgeScene(QGraphicsScene):
             self.addItem(item)
             self._text_items[text.id] = item
 
+        for bp in self._document.iter_biopolymers():
+            item = BiopolymerItem(bp)
+            self.addItem(item)
+            self._biopolymer_items[bp.id] = item
+
         self.model_changed.emit()
 
     def atom_item(self, atom_id: int) -> AtomItem | None:
@@ -127,6 +136,9 @@ class BondForgeScene(QGraphicsScene):
 
     def text_item(self, text_id: int) -> TextItem | None:
         return self._text_items.get(text_id)
+
+    def biopolymer_item(self, bp_id: int) -> BiopolymerItem | None:
+        return self._biopolymer_items.get(bp_id)
 
     # ----- preview items ------------------------------------------------
 

@@ -29,6 +29,7 @@ from bondforge.canvas.tools import ArrowTool, AtomTool, BondTool, RingTool, Text
 from bondforge.canvas.view import BondForgeView
 from bondforge.core.commands import (
     AddAtomCommand,
+    AddBiopolymerCommand,
     AddBondCommand,
     CleanupStructureCommand,
 )
@@ -38,6 +39,7 @@ from bondforge.core.io import (
     read_mol_file,
     read_smiles,
     save_bforge,
+    write_helm,
     write_mol_file,
     write_rxn_file,
     write_smiles,
@@ -47,8 +49,10 @@ from bondforge.core.io.xyz import write_xyz_file
 from bondforge.core.model.arrow import ArrowKind
 from bondforge.core.model.bond import BondOrder, BondStereo
 from bondforge.core.model.molecule import Molecule
+from bondforge.core.model.monomer import PolymerType
 from bondforge.ui.dialogs.name_to_structure import NameToStructureDialog
 from bondforge.ui.inspectors.properties_panel import PropertiesPanel
+from bondforge.ui.palettes.sequence_editor import SequenceEditor
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QGraphicsSceneMouseEvent
@@ -138,6 +142,11 @@ class MainWindow(QMainWindow):
 
         self._props_panel = PropertiesPanel(self._scene, self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._props_panel)
+
+        self._seq_editor = SequenceEditor(self)
+        self._seq_editor.sequence_submitted.connect(self._on_sequence_submitted)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._seq_editor)
+        self._seq_editor.hide()  # hidden by default, toggled from BioDraw menu
 
         self._build_menus()
         self._build_toolbar()
@@ -256,6 +265,22 @@ class MainWindow(QMainWindow):
             triggered=self._name_to_structure,
         )
         tools_menu.addAction(name_to_structure_action)
+
+        biodraw_menu = menu.addMenu("&BioDraw")
+        toggle_seq_editor = self._seq_editor.toggleViewAction()
+        toggle_seq_editor.setText("&Sequence Editor")
+        toggle_seq_editor.setShortcut("Ctrl+Shift+B")
+        biodraw_menu.addAction(toggle_seq_editor)
+        biodraw_menu.addSeparator()
+        igg_action = QAction(
+            "Insert &IgG Antibody", self, triggered=self._insert_igg_template
+        )
+        biodraw_menu.addAction(igg_action)
+        biodraw_menu.addSeparator()
+        export_helm_action = QAction(
+            "Export &HELM…", self, triggered=self._export_helm
+        )
+        biodraw_menu.addAction(export_helm_action)
 
         help_menu = menu.addMenu("&Help")
         about_action = QAction("&About BondForge", self, triggered=self._about)
@@ -416,6 +441,51 @@ class MainWindow(QMainWindow):
         if not path.endswith(".pdf"):
             path += ".pdf"
         export_pdf(self._scene, path)
+
+    def _on_sequence_submitted(self, sequence: str, polymer_type: PolymerType) -> None:
+        """Handle a sequence from the sequence editor panel."""
+        from bondforge.core.model.templates import (
+            dna_strand,
+            igg_antibody,
+            linear_peptide,
+            rna_strand,
+        )
+
+        if sequence == "__IGG_TEMPLATE__":
+            bp = igg_antibody()
+        elif polymer_type == PolymerType.DNA:
+            bp = dna_strand(sequence)
+        elif polymer_type == PolymerType.RNA:
+            bp = rna_strand(sequence)
+        else:
+            bp = linear_peptide(sequence)
+
+        cmd = AddBiopolymerCommand(self._scene, bp)
+        self._undo_stack.push(cmd)
+
+    def _insert_igg_template(self) -> None:
+        from bondforge.core.model.templates import igg_antibody
+
+        bp = igg_antibody()
+        cmd = AddBiopolymerCommand(self._scene, bp)
+        self._undo_stack.push(cmd)
+
+    def _export_helm(self) -> None:
+        bps = list(self._scene.document.iter_biopolymers())
+        if not bps:
+            QMessageBox.information(
+                self, "No biopolymers", "No biopolymers to export."
+            )
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export HELM", "", "HELM file (*.helm);;Text file (*.txt)"
+        )
+        if not path:
+            return
+        from pathlib import Path as _Path
+
+        lines = [write_helm(bp) for bp in bps]
+        _Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _on_model_changed(self) -> None:
         # Invalidate cached conformer whenever the 2D model changes.
