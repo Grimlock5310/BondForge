@@ -14,9 +14,11 @@ from bondforge.core.io.bforge import (
     save_bforge,
 )
 from bondforge.core.model.arrow import ArrowKind
+from bondforge.core.model.biopolymer import Biopolymer, ConnectionType
 from bondforge.core.model.bond import BondOrder, BondStereo
 from bondforge.core.model.document import Document
 from bondforge.core.model.molecule import Molecule
+from bondforge.core.model.monomer import MonomerResidue, PolymerType
 
 
 def _make_doc() -> Document:
@@ -137,3 +139,25 @@ def test_atom_optional_fields_round_trip() -> None:
     assert ra.explicit_hydrogens == 2
     assert ra.label == "R1"
     assert ra.is_query is True
+
+
+def test_biopolymer_round_trip() -> None:
+    doc = Document()
+    bp = Biopolymer(id=0)
+    bp.add_chain("PEPTIDE1", PolymerType.PEPTIDE, [
+        MonomerResidue(1, "A", PolymerType.PEPTIDE),
+        MonomerResidue(2, "G", PolymerType.PEPTIDE),
+    ])
+    bp.add_chain("PEPTIDE2", PolymerType.PEPTIDE, [
+        MonomerResidue(1, "K", PolymerType.PEPTIDE),
+    ])
+    bp.add_connection(ConnectionType.PAIR, "PEPTIDE1", 2, "PEPTIDE2", 1)
+    doc.add_biopolymer(bp)
+
+    text = document_to_json(doc)
+    restored = json_to_document(text)
+    assert len(restored.biopolymers) == 1
+    rbp = list(restored.iter_biopolymers())[0]
+    assert len(rbp.chains) == 2
+    assert rbp.chains["PEPTIDE1"].sequence == "AG"
+    assert len(rbp.connections) == 1

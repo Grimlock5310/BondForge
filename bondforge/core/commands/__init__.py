@@ -7,11 +7,16 @@ through the user's actions.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PySide6.QtGui import QUndoCommand
 
 from bondforge.canvas.scene import BondForgeScene
 from bondforge.core.model.arrow import ArrowKind
 from bondforge.core.model.bond import BondOrder, BondStereo
+
+if TYPE_CHECKING:
+    from bondforge.core.model.biopolymer import Biopolymer
 
 
 class AddAtomCommand(QUndoCommand):
@@ -465,6 +470,60 @@ class DeleteTextCommand(QUndoCommand):
         self._scene.rebuild()
 
 
+class AddBiopolymerCommand(QUndoCommand):
+    """Add a biopolymer to the document."""
+
+    def __init__(self, scene: BondForgeScene, biopolymer: Biopolymer) -> None:
+        super().__init__("Add biopolymer")
+        self._scene = scene
+        self._biopolymer = biopolymer
+        self.created_bp_id: int = -1
+
+    def redo(self) -> None:
+        doc = self._scene.document
+        doc.add_biopolymer(self._biopolymer)
+        if self.created_bp_id == -1:
+            self.created_bp_id = self._biopolymer.id
+        elif self._biopolymer.id != self.created_bp_id:
+            doc.biopolymers.pop(self._biopolymer.id)
+            self._biopolymer.id = self.created_bp_id
+            doc.biopolymers[self.created_bp_id] = self._biopolymer
+            doc._next_biopolymer_id = max(doc._next_biopolymer_id, self.created_bp_id + 1)
+        self._scene.rebuild()
+
+    def undo(self) -> None:
+        if self.created_bp_id != -1:
+            self._scene.document.remove_biopolymer(self.created_bp_id)
+            self._scene.rebuild()
+
+
+class DeleteBiopolymerCommand(QUndoCommand):
+    """Delete a biopolymer from the document."""
+
+    def __init__(self, scene: BondForgeScene, bp_id: int) -> None:
+        super().__init__("Delete biopolymer")
+        self._scene = scene
+        self._bp_id = bp_id
+        self._snapshot: Biopolymer | None = None
+
+    def redo(self) -> None:
+        doc = self._scene.document
+        bp = doc.biopolymers.get(self._bp_id)
+        if bp is None:
+            return
+        self._snapshot = bp
+        doc.remove_biopolymer(self._bp_id)
+        self._scene.rebuild()
+
+    def undo(self) -> None:
+        if self._snapshot is None:
+            return
+        doc = self._scene.document
+        doc.biopolymers[self._bp_id] = self._snapshot
+        doc._next_biopolymer_id = max(doc._next_biopolymer_id, self._bp_id + 1)
+        self._scene.rebuild()
+
+
 class CleanupStructureCommand(QUndoCommand):
     """Re-lay out the entire molecule with RDKit's 2D coordinate generator.
 
@@ -511,4 +570,6 @@ __all__ = [
     "SetAtomMapNumberCommand",
     "AddTextCommand",
     "DeleteTextCommand",
+    "AddBiopolymerCommand",
+    "DeleteBiopolymerCommand",
 ]

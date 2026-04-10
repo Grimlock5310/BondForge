@@ -3,7 +3,8 @@
 A :class:`Document` owns exactly one :class:`Molecule` (which may have
 disjoint connected components — a reaction scheme draws A + B → C by
 laying out three components in the same molecule), a list of
-:class:`Arrow` instances, and a list of :class:`TextAnnotation` objects.
+:class:`Arrow` instances, a list of :class:`TextAnnotation` objects,
+and a dict of :class:`Biopolymer` instances.
 
 Older v0.2 code talks to ``scene.molecule`` directly; ``Document`` is
 designed to slot under that without breaking existing call sites. The
@@ -17,19 +18,22 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from bondforge.core.model.arrow import Arrow, ArrowKind
+from bondforge.core.model.biopolymer import Biopolymer
 from bondforge.core.model.molecule import Molecule
 from bondforge.core.model.text_annotation import TextAnnotation
 
 
 @dataclass
 class Document:
-    """A drawing: one molecule + arrows + text annotations."""
+    """A drawing: one molecule + arrows + text annotations + biopolymers."""
 
     molecule: Molecule = field(default_factory=Molecule)
     arrows: dict[int, Arrow] = field(default_factory=dict)
     texts: dict[int, TextAnnotation] = field(default_factory=dict)
+    biopolymers: dict[int, Biopolymer] = field(default_factory=dict)
     _next_arrow_id: int = 1
     _next_text_id: int = 1
+    _next_biopolymer_id: int = 1
 
     def add_arrow(
         self,
@@ -98,6 +102,23 @@ class Document:
 
     def iter_texts(self) -> Iterable[TextAnnotation]:
         return self.texts.values()
+
+    # ----- biopolymers ---------------------------------------------------
+
+    def add_biopolymer(self, biopolymer: Biopolymer) -> Biopolymer:
+        """Register a biopolymer, assigning it a document-unique ID."""
+        biopolymer.id = self._next_biopolymer_id
+        self.biopolymers[biopolymer.id] = biopolymer
+        self._next_biopolymer_id += 1
+        return biopolymer
+
+    def remove_biopolymer(self, bp_id: int) -> None:
+        if bp_id not in self.biopolymers:
+            raise KeyError(f"Biopolymer {bp_id} not found")
+        del self.biopolymers[bp_id]
+
+    def iter_biopolymers(self) -> Iterable[Biopolymer]:
+        return self.biopolymers.values()
 
 
 __all__ = ["Document"]
