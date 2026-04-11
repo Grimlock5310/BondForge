@@ -6,7 +6,7 @@ BondForge is an early-stage chemistry drawing application built on **PySide6 (Qt
 
 ## Status
 
-**Pre-alpha (v0.4).** What works today:
+**Pre-alpha (v0.7).** What works today:
 
 - Click-and-drag drawing of atoms, bonds, and rings (3- through 8-membered)
 - Click to extend a chain at a proper zigzag (bonds parallel to the grandparent)
@@ -35,9 +35,17 @@ BondForge is an early-stage chemistry drawing application built on **PySide6 (Qt
 - **ETKDG conformer generation** (RDKit ETKDGv3 embedding)
 - **MMFF94/UFF force-field minimization** (Structure → Minimize)
 - **XYZ and PDB export** (Structure → Export XYZ…/Export PDB…)
+- **Text annotations** (Insert → Text Annotation, Ctrl+T) with font/bold/italic
+- **Native `.bforge` file format** — lossless JSON serialization of the whole document
+- **PDF export** (File → Export PDF…) with standard page layout
+- **Journal style presets** (ACS, RSC, Nature, Wiley) via View → Journal Style
+- **BioDraw / HELM**: sequence editor (Ctrl+Shift+B) for peptides/DNA/RNA, IgG antibody template, HELM v2.0 IO
+- **Spectrum prediction** (Spectra menu): heuristic 1H NMR, 13C NMR, IR (functional-group bands), EI-MS (M⁺ + isotopologues + common fragment losses)
+- **Native spectrum viewer**: mouse-wheel zoom, middle-drag pan, double-click reset, handles sticks (NMR/MS) and continuous traces (IR)
+- **JCAMP-DX IO** for spectra (Spectra → Open/Export JCAMP-DX…)
 - Carbon-implicit vertices, charge labels, reaction map-number labels
-- MOL (V2000/V3000), SMILES, RXN, XYZ, and PDB read/write
-- PNG and SVG export
+- MOL (V2000/V3000), SMILES, RXN, XYZ, PDB, `.bforge`, HELM, JCAMP-DX read/write
+- PNG, SVG, and PDF export
 - Undo/redo via the Qt undo stack
 - Round-trip with RDKit for sanitization, aromaticity, and canonical SMILES
 
@@ -54,10 +62,10 @@ ChemDraw is the de facto standard chemistry drawing tool but is proprietary, exp
 | v0.1 | Skeleton | Window, canvas, atom/bond/ring tools, MOL+SMILES IO, PNG export, undo |
 | v0.2 | Drawing core | Nucleus hotkeys, snapping, uniform bond lengths, structure clean-up, wedge/hash bonds, ring set 3–8 |
 | v0.3 | Reactions & naming | Reaction arrows, atom mapping, electron-pushing curved arrows, RXN export, OPSIN Name→Structure |
-| **v0.4** | Properties & 3D | MW/formula/logP/TPSA properties panel, embedded 3Dmol.js viewer, ETKDG conformers, MMFF94 minimization, XYZ/PDB export |
-| v0.5 | Documents | Multi-page, rich text, tables, journal styles, PDF/SVG export, native `.bforge` format |
+| v0.4 | Properties & 3D | MW/formula/logP/TPSA properties panel, native 3D ball-and-stick viewer, ETKDG conformers, MMFF94 minimization, XYZ/PDB export |
+| v0.5 | Documents | Text annotations, journal styles, PDF/SVG export, native `.bforge` format |
 | v0.6 | BioDraw / HELM | Peptide/DNA/RNA editor, monomer palette, HELM IO, antibody templates |
-| v0.7 | Spectra | NMRium embedded viewer, JCAMP-DX, 1H/13C prediction |
+| **v0.7** | Spectra | Native spectrum viewer, JCAMP-DX IO, heuristic 1H/13C NMR, IR, and EI-MS prediction |
 | v1.0 | Polish | PubChem search, Office clipboard interop, signed installers, plugin API |
 
 ## Known parity gaps

@@ -34,12 +34,15 @@ from bondforge.core.commands import (
     CleanupStructureCommand,
 )
 from bondforge.core.io import (
+    JcampError,
     RxnExportError,
     load_bforge,
+    read_jcamp_file,
     read_mol_file,
     read_smiles,
     save_bforge,
     write_helm,
+    write_jcamp_file,
     write_mol_file,
     write_rxn_file,
     write_smiles,
@@ -139,6 +142,9 @@ class MainWindow(QMainWindow):
         # Cached 3D conformer (generated on demand, cleared on model change).
         self._conformer_mol = None
         self._viewer_3d = None
+
+        # Spectrum viewer window (lazy).
+        self._spectrum_viewer = None
 
         self._props_panel = PropertiesPanel(self._scene, self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._props_panel)
@@ -265,6 +271,33 @@ class MainWindow(QMainWindow):
             triggered=self._name_to_structure,
         )
         tools_menu.addAction(name_to_structure_action)
+
+        spectra_menu = menu.addMenu("S&pectra")
+        predict_1h_action = QAction(
+            "Predict &1H NMR", self, triggered=lambda: self._predict_spectrum("1h")
+        )
+        predict_13c_action = QAction(
+            "Predict 1&3C NMR", self, triggered=lambda: self._predict_spectrum("13c")
+        )
+        predict_ir_action = QAction(
+            "Predict &IR", self, triggered=lambda: self._predict_spectrum("ir")
+        )
+        predict_ms_action = QAction(
+            "Predict &MS", self, triggered=lambda: self._predict_spectrum("ms")
+        )
+        spectra_menu.addAction(predict_1h_action)
+        spectra_menu.addAction(predict_13c_action)
+        spectra_menu.addAction(predict_ir_action)
+        spectra_menu.addAction(predict_ms_action)
+        spectra_menu.addSeparator()
+        import_jcamp_action = QAction(
+            "&Open JCAMP-DX…", self, triggered=self._open_jcamp
+        )
+        export_jcamp_action = QAction(
+            "&Export JCAMP-DX…", self, triggered=self._export_jcamp
+        )
+        spectra_menu.addAction(import_jcamp_action)
+        spectra_menu.addAction(export_jcamp_action)
 
         biodraw_menu = menu.addMenu("&BioDraw")
         toggle_seq_editor = self._seq_editor.toggleViewAction()
@@ -609,6 +642,82 @@ class MainWindow(QMainWindow):
         finally:
             self._undo_stack.endMacro()
         self._scene.rebuild()
+
+    # ----- spectra ------------------------------------------------------
+
+    def _predict_spectrum(self, kind: str) -> None:
+        """Run a spectrum predictor and show it in the spectrum viewer."""
+        if not self._scene.molecule.atoms:
+            QMessageBox.information(self, "No molecule", "Draw a molecule first.")
+            return
+        from bondforge.engine.prediction import (
+            predict_1h_nmr,
+            predict_13c_nmr,
+            predict_ir,
+            predict_ms,
+        )
+
+        try:
+            if kind == "1h":
+                spec = predict_1h_nmr(self._scene.molecule)
+            elif kind == "13c":
+                spec = predict_13c_nmr(self._scene.molecule)
+            elif kind == "ir":
+                spec = predict_ir(self._scene.molecule)
+            else:
+                spec = predict_ms(self._scene.molecule)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Prediction failed", str(exc))
+            return
+        self._show_spectrum(spec)
+
+    def _show_spectrum(self, spectrum) -> None:
+        """Show a :class:`Spectrum` in a floating SpectrumViewer window."""
+        from bondforge.ui.viewers.spectrum_viewer import SpectrumViewer
+
+        if self._spectrum_viewer is None or not self._spectrum_viewer.isVisible():
+            self._spectrum_viewer = SpectrumViewer()
+            self._spectrum_viewer.setWindowTitle("BondForge — Spectrum Viewer")
+            self._spectrum_viewer.resize(800, 450)
+        self._spectrum_viewer.set_spectrum(spectrum)
+        self._spectrum_viewer.show()
+        self._spectrum_viewer.raise_()
+
+    def _open_jcamp(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open JCAMP-DX", "", "JCAMP-DX (*.jdx *.dx *.jcamp);;All files (*)"
+        )
+        if not path:
+            return
+        try:
+            spec = read_jcamp_file(path)
+        except JcampError as exc:
+            QMessageBox.warning(self, "JCAMP-DX read failed", str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "JCAMP-DX read failed", str(exc))
+            return
+        self._show_spectrum(spec)
+
+    def _export_jcamp(self) -> None:
+        if self._spectrum_viewer is None or self._spectrum_viewer.spectrum() is None:
+            QMessageBox.information(
+                self,
+                "No spectrum",
+                "Predict or open a spectrum first, then export.",
+            )
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export JCAMP-DX", "", "JCAMP-DX (*.jdx)"
+        )
+        if not path:
+            return
+        if not path.endswith((".jdx", ".dx", ".jcamp")):
+            path += ".jdx"
+        try:
+            write_jcamp_file(self._spectrum_viewer.spectrum(), path)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "JCAMP-DX write failed", str(exc))
 
     def _cleanup_structure(self) -> None:
         if not self._scene.molecule.atoms:
