@@ -72,7 +72,28 @@ def test_predict_1h_nmr_benzene_has_aromatic_peak() -> None:
 
 def test_predict_1h_nmr_empty_molecule() -> None:
     spec = predict_1h_nmr(Molecule())
+    # Empty molecule emits no peaks at all (not even reference markers).
     assert spec.n_points == 0
+
+
+def test_predict_1h_nmr_emits_tms_reference() -> None:
+    spec = predict_1h_nmr(_make_ethanol())
+    assert any(p.label == "TMS" and p.x == 0.0 for p in spec.peaks)
+    assert any(p.label == "CHCl₃" for p in spec.peaks)
+
+
+def test_predict_1h_nmr_aggregates_methyl_protons() -> None:
+    """Three CH3 protons should collapse to one peak with intensity 3."""
+    spec = predict_1h_nmr(_make_acetone())
+    # Acetone has two equivalent methyls; aggregation collapses them
+    # into one peak with integral 6 (sum of all CH3 protons).
+    methyl_peak = max(
+        (p for p in spec.peaks if p.label.startswith(("3H", "6H"))),
+        key=lambda p: p.intensity,
+        default=None,
+    )
+    assert methyl_peak is not None
+    assert methyl_peak.intensity >= 3.0
 
 
 # ---- 13C NMR ---------------------------------------------------------------
@@ -88,10 +109,12 @@ def test_predict_13c_nmr_acetone_has_carbonyl() -> None:
 
 def test_predict_13c_nmr_benzene() -> None:
     spec = predict_13c_nmr(_make_benzene())
-    assert spec.n_points == 6
-    # All carbons aromatic → ~128 ppm
-    for x in spec.x_values:
-        assert 120 <= x <= 135
+    # All six aromatic carbons collapse into a single ~128 ppm peak
+    # plus the TMS and CDCl₃ reference markers added by the predictor.
+    aromatic = [p for p in spec.peaks if p.label and "C" in p.label and p.label != "TMS"]
+    assert any(120 <= p.x <= 135 for p in aromatic)
+    # The TMS reference is always emitted at 0 ppm.
+    assert any(p.label == "TMS" and p.x == 0.0 for p in spec.peaks)
 
 
 # ---- IR --------------------------------------------------------------------
@@ -100,7 +123,8 @@ def test_predict_13c_nmr_benzene() -> None:
 def test_predict_ir_ethanol_has_oh() -> None:
     spec = predict_ir(_make_ethanol())
     assert spec.spectrum_type == SpectrumType.IR
-    assert spec.n_points == 501
+    # 4 cm⁻¹ resolution from 500–4000 cm⁻¹ → 876 points.
+    assert spec.n_points == 876
     assert any("O–H" in p.label for p in spec.peaks)
 
 
@@ -133,6 +157,31 @@ def test_predict_ms_has_fragment_peaks() -> None:
     # At least one standard fragment loss should be present
     labels = [p.label for p in spec.peaks]
     assert any(label.startswith("M−") for label in labels)
+
+
+def test_predict_ms_acetone_has_methyl_loss_and_acylium() -> None:
+    """A methyl ketone should produce M−CH₃CO loss and the acylium daughter."""
+    spec = predict_ms(_make_acetone())
+    labels = {p.label for p in spec.peaks}
+    assert "M−CH₃CO" in labels
+    # M−CH₃ and the m/z 43 acylium ion collide on the same peak for
+    # acetone (both are C₂H₃O⁺), so we just check that *some* peak at
+    # ~43 m/z is present.
+    assert any(42.5 <= p.x <= 43.5 for p in spec.peaks)
+
+
+def test_predict_ms_normalized_to_base_peak() -> None:
+    """Every MS spectrum's tallest peak should land at intensity 100."""
+    spec = predict_ms(_make_acetone())
+    if spec.peaks:
+        assert max(p.intensity for p in spec.peaks) == 100.0
+
+
+def test_predict_ms_no_methyl_loss_for_benzene() -> None:
+    """Benzene has no CH₃ → no M−CH₃ fragment should be emitted."""
+    spec = predict_ms(_make_benzene())
+    labels = {p.label for p in spec.peaks}
+    assert "M−CH₃" not in labels
 
 
 def test_predict_ms_empty_molecule() -> None:
